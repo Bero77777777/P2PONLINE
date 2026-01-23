@@ -7,11 +7,13 @@ from aiogram.filters import Command
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 import os
-TOKEN = os.getenv("8432389870:AAG_xeTGHv0PO-pN1N75U88EJU6_6K6E8Hg")
+from aiogram import Bot
+
+TOKEN = os.getenv("8432389870:AAG_xeTGHv0PO-pN1N75U88EJU6_6K6E8Hg")  # <--- must match the variable name exactly
+bot = Bot(TOKEN)
 
 ADMINS = {6051335819, 672551095}
 
-bot = Bot(TOKEN)
 dp = Dispatcher()
 
 DB_NAME = "usd_bot.db"
@@ -233,3 +235,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
