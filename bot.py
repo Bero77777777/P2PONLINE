@@ -1,3 +1,4 @@
+
 import asyncio
 import aiosqlite
 from datetime import datetime
@@ -6,32 +7,26 @@ import re
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 
-# ================= CONFIG =================
-
 TOKEN = "8357406219:AAFI756lzhQnFA3YzuWVClDWDOvlszsoScA"
-
-ADMINS = {
-    6051335819,
+ADMIN_ID = 6051335819,
     672551095,
     8208387660,
     6375452214,
     8139964977
-}
 
 DB_NAME = "calculator.db"
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-# ================= DATABASE =================
-
+# ---------- DB ----------
 async def init_db():
     async with aiosqlite.connect(DB_NAME) as db:
         await db.execute("""
         CREATE TABLE IF NOT EXISTS stats (
             id INTEGER PRIMARY KEY,
-            total_usd REAL,
-            sent_usdt REAL
+            total REAL,
+            sent REAL
         )
         """)
         await db.execute(
@@ -39,79 +34,70 @@ async def init_db():
         )
         await db.commit()
 
-# ================= START =================
-
+# ---------- START ----------
 @dp.message(Command("start"))
 async def start(message: types.Message):
-    if message.from_user.id not in ADMINS:
+    if message.from_user.id != ADMIN_ID:
         return
     await message.answer(
-        "✅ Calculator ready\n\n"
-        "Use:\n"
+        "✅ Calculator ready\n"
+        "Commands:\n"
         "+100\n"
         "-50\n"
         "/report"
     )
 
-# ================= REPORT =================
-
+# ---------- REPORT ----------
 @dp.message(Command("report"))
 async def report(message: types.Message):
-    if message.from_user.id not in ADMINS:
+    if message.from_user.id != ADMIN_ID:
         return
 
     async with aiosqlite.connect(DB_NAME) as db:
-        total_usd, sent_usdt = await (
+        total, sent = await (
             await db.execute(
-                "SELECT total_usd, sent_usdt FROM stats WHERE id=1"
+                "SELECT total, sent FROM stats WHERE id=1"
             )
         ).fetchone()
 
-    remaining = total_usd - sent_usdt
-
     await message.answer(
         f"📊 REPORT\n\n"
-        f"💵 Received: {total_usd:.2f} USD\n"
-        f"📤 Sent: {sent_usdt:.2f} USDT\n"
-        f"📈 Remaining: {remaining:.2f} USDT"
+        f"Received: {total}\n"
+        f"Sent: {sent}\n"
+        f"Remaining: {total - sent}"
     )
 
-# ================= CALCULATOR =================
-
+# ---------- CALCULATOR ----------
 @dp.message()
-async def calculator(message: types.Message):
-    if message.from_user.id not in ADMINS:
+async def calc(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
         return
 
-    text = message.text.lower().strip()
-
-    match = re.match(r"^([+-])\s*(\d+(\.\d+)?)$", text)
-    if not match:
+    text = message.text.strip()
+    m = re.match(r"^([+-])\s*(\d+(\.\d+)?)$", text)
+    if not m:
         return
 
-    sign = match.group(1)
-    amount = float(match.group(2))
+    sign = m.group(1)
+    amount = float(m.group(2))
 
     async with aiosqlite.connect(DB_NAME) as db:
         if sign == "+":
             await db.execute(
-                "UPDATE stats SET total_usd = total_usd + ?",
-                (amount,)
+                "UPDATE stats SET total = total + ?", (amount,)
             )
-            reply = f"✅ Added {amount} USD"
+            reply = f"➕ Added {amount}"
         else:
             await db.execute(
-                "UPDATE stats SET sent_usdt = sent_usdt + ?",
-                (amount,)
+                "UPDATE stats SET sent = sent + ?", (amount,)
             )
-            reply = f"✅ Subtracted {amount} USDT"
+            reply = f"➖ Subtracted {amount}"
 
         await db.commit()
 
     await message.answer(reply)
 
-# ================= RUN =================
-
+# ---------- RUN ----------
 async def main():
     await init_db()
     await dp.start_polling(bot)
