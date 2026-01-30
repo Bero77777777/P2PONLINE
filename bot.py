@@ -9,7 +9,7 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 import os
 from aiogram import Bot
 
-TOKEN = os.getenv("BOT_TOKEN")  # <--- must match the variable name exactly
+TOKEN = os.getenv("8357406219:AAFI756lzhQnFA3YzuWVClDWDOvlszsoScA")  # <--- must match the variable name exactly
 bot = Bot(TOKEN)
 
 ADMINS = {6051335819, 672551095, 8208387660, 6375452214, 8139964977, 5094875024}
@@ -235,6 +235,7 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
 
 
