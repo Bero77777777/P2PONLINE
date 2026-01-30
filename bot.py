@@ -3,9 +3,8 @@ import aiosqlite
 from datetime import datetime
 import re
 
-from aiogram import Bot, Dispatcher, F, types
+from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 # ================= CONFIG =================
 
@@ -19,22 +18,15 @@ ADMINS = {
     8139964977
 }
 
-DB_NAME = "usd_bot.db"
+DB_NAME = "calculator.db"
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-# ================= DB INIT =================
+# ================= DATABASE =================
 
 async def init_db():
     async with aiosqlite.connect(DB_NAME) as db:
-        await db.execute("""
-        CREATE TABLE IF NOT EXISTS settings (
-            id INTEGER PRIMARY KEY,
-            rate REAL,
-            fee REAL
-        )
-        """)
         await db.execute("""
         CREATE TABLE IF NOT EXISTS stats (
             id INTEGER PRIMARY KEY,
@@ -42,108 +34,58 @@ async def init_db():
             sent_usdt REAL
         )
         """)
-        await db.execute("""
-        CREATE TABLE IF NOT EXISTS operations (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            type TEXT,
-            amount REAL,
-            time TEXT
+        await db.execute(
+            "INSERT OR IGNORE INTO stats VALUES (1, 0, 0)"
         )
-        """)
-        await db.execute("INSERT OR IGNORE INTO settings VALUES (1, 1, 0)")
-        await db.execute("INSERT OR IGNORE INTO stats VALUES (1, 0, 0)")
         await db.commit()
-
-# ================= HELPERS =================
-
-def is_admin(user_id: int) -> bool:
-    return user_id in ADMINS
-
-
-def keyboard():
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="📊 Report", callback_data="report"),
-            InlineKeyboardButton(text="🔄 Reset", callback_data="reset")
-        ]
-    ])
 
 # ================= START =================
 
 @dp.message(Command("start"))
 async def start(message: types.Message):
-    if not is_admin(message.from_user.id):
+    if message.from_user.id not in ADMINS:
         return
-    await message.answer("🤖 Bot ready", reply_markup=keyboard())
+    await message.answer(
+        "✅ Calculator ready\n\n"
+        "Use:\n"
+        "+100\n"
+        "-50\n"
+        "/report"
+    )
 
 # ================= REPORT =================
 
-async def send_report(target):
-    async with aiosqlite.connect(DB_NAME) as db:
-        rate, fee = await (await db.execute(
-            "SELECT rate, fee FROM settings WHERE id=1"
-        )).fetchone()
-
-        total_usd, sent_usdt = await (await db.execute(
-            "SELECT total_usd, sent_usdt FROM stats WHERE id=1"
-        )).fetchone()
-
-    gross = total_usd / rate if rate else 0
-    fee_amt = gross * fee / 100
-    net = gross - fee_amt
-    remaining = net - sent_usdt
-
-    text = (
-        "📊 <b>REPORT</b>\n\n"
-        f"💵 Deposited: <b>{total_usd:.2f} USD</b>\n"
-        f"📤 Sent: <b>{sent_usdt:.2f} USDT</b>\n"
-        f"💰 Fee: <b>{fee}%</b>\n"
-        f"📈 Remaining: <b>{remaining:.2f} USDT</b>"
-    )
-
-    if isinstance(target, types.CallbackQuery):
-        await target.message.answer(text, parse_mode="HTML")
-        await target.answer()
-    else:
-        await target.answer(text, parse_mode="HTML")
-
-
 @dp.message(Command("report"))
-async def report_cmd(message: types.Message):
-    if is_admin(message.from_user.id):
-        await send_report(message)
-
-
-@dp.callback_query(F.data == "report")
-async def report_cb(call: types.CallbackQuery):
-    if is_admin(call.from_user.id):
-        await send_report(call)
-
-# ================= RESET =================
-
-@dp.callback_query(F.data == "reset")
-async def reset(call: types.CallbackQuery):
-    if not is_admin(call.from_user.id):
+async def report(message: types.Message):
+    if message.from_user.id not in ADMINS:
         return
 
     async with aiosqlite.connect(DB_NAME) as db:
-        await db.execute("UPDATE stats SET total_usd=0, sent_usdt=0")
-        await db.execute("DELETE FROM operations")
-        await db.commit()
+        total_usd, sent_usdt = await (
+            await db.execute(
+                "SELECT total_usd, sent_usdt FROM stats WHERE id=1"
+            )
+        ).fetchone()
 
-    await call.answer("Reset done ✅", show_alert=True)
+    remaining = total_usd - sent_usdt
 
-# ================= MAIN LOGIC (+ / -) =================
+    await message.answer(
+        f"📊 REPORT\n\n"
+        f"💵 Received: {total_usd:.2f} USD\n"
+        f"📤 Sent: {sent_usdt:.2f} USDT\n"
+        f"📈 Remaining: {remaining:.2f} USDT"
+    )
 
-@dp.message(F.text)
-async def handle_amount(message: types.Message):
-    if not is_admin(message.from_user.id):
+# ================= CALCULATOR =================
+
+@dp.message()
+async def calculator(message: types.Message):
+    if message.from_user.id not in ADMINS:
         return
 
     text = message.text.lower().strip()
 
-    # match +100 / + 100 usd / -50 usdt
-    match = re.match(r"^([+-])\s*(\d+(\.\d+)?)(\s*(usd|usdt))?$", text)
+    match = re.match(r"^([+-])\s*(\d+(\.\d+)?)$", text)
     if not match:
         return
 
@@ -153,24 +95,20 @@ async def handle_amount(message: types.Message):
     async with aiosqlite.connect(DB_NAME) as db:
         if sign == "+":
             await db.execute(
-                "UPDATE stats SET total_usd = total_usd + ?", (amount,)
+                "UPDATE stats SET total_usd = total_usd + ?",
+                (amount,)
             )
-            op_type = "deposit"
-            reply = f"✅ Deposited {amount} USD"
+            reply = f"✅ Added {amount} USD"
         else:
             await db.execute(
-                "UPDATE stats SET sent_usdt = sent_usdt + ?", (amount,)
+                "UPDATE stats SET sent_usdt = sent_usdt + ?",
+                (amount,)
             )
-            op_type = "withdraw"
-            reply = f"✅ Sent {amount} USDT"
+            reply = f"✅ Subtracted {amount} USDT"
 
-        await db.execute(
-            "INSERT INTO operations (type, amount, time) VALUES (?,?,?)",
-            (op_type, amount, datetime.now().isoformat())
-        )
         await db.commit()
 
-    await message.reply(reply)
+    await message.answer(reply)
 
 # ================= RUN =================
 
@@ -180,4 +118,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-
