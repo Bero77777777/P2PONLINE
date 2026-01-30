@@ -9,7 +9,7 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 # ================= CONFIG =================
 
-TOKEN = "PASTE_YOUR_BOT_TOKEN_HERE"
+TOKEN = "8357406219:AAFI756lzhQnFA3YzuWVClDWDOvlszsoScA"
 
 ADMINS = {
     6051335819,
@@ -180,3 +180,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
