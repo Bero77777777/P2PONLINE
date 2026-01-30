@@ -3,24 +3,29 @@ import aiosqlite
 from datetime import datetime
 import re
 
-from aiogram import Bot, Dispatcher, types, F
+from aiogram import Bot, Dispatcher, F, types
 from aiogram.filters import Command
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-import os
-from aiogram import Bot
+# ================= CONFIG =================
 
-TOKEN = "8357406219:AAFI756lzhQnFA3YzuWVClDWDOvlszsoScA"
-bot = Bot(TOKEN)
+TOKEN = "PASTE_YOUR_BOT_TOKEN_HERE"
 
-ADMINS = {6051335819, 672551095, 8208387660, 6375452214, 8139964977}
-
-dp = Dispatcher()
+ADMINS = {
+    6051335819,
+    672551095,
+    8208387660,
+    6375452214,
+    8139964977
+}
 
 DB_NAME = "usd_bot.db"
 
+bot = Bot(token=TOKEN)
+dp = Dispatcher()
 
-# ---------- DB INIT ----------
+# ================= DB INIT =================
+
 async def init_db():
     async with aiosqlite.connect(DB_NAME) as db:
         await db.execute("""
@@ -49,201 +54,129 @@ async def init_db():
         await db.execute("INSERT OR IGNORE INTO stats VALUES (1, 0, 0)")
         await db.commit()
 
+# ================= HELPERS =================
 
-# ---------- ADMIN CHECK ----------
-def is_admin(message: types.Message) -> bool:
-    return message.from_user.id in ADMINS
+def is_admin(user_id: int) -> bool:
+    return user_id in ADMINS
 
 
-# ---------- INLINE MENU ----------
-def main_keyboard():
+def keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(text="📊 Report", callback_data="report"),
             InlineKeyboardButton(text="🔄 Reset", callback_data="reset")
-        ],
-        [
-            InlineKeyboardButton(text="📤 Export CSV", callback_data="export")
         ]
     ])
 
+# ================= START =================
 
-# ---------- START ----------
 @dp.message(Command("start"))
 async def start(message: types.Message):
-    if not is_admin(message):
+    if not is_admin(message.from_user.id):
         return
-    await message.answer(
-        "🤖 USD → USDT ბოტი მზადაა",
-        reply_markup=main_keyboard()
-    )
+    await message.answer("🤖 Bot ready", reply_markup=keyboard())
 
+# ================= REPORT =================
 
-# ---------- SET RATE ----------
-@dp.message(Command("rate"))
-async def set_rate(message: types.Message):
-    if not is_admin(message):
-        return
-    try:
-        _, rate = message.text.split()
-        async with aiosqlite.connect(DB_NAME) as db:
-            await db.execute("UPDATE settings SET rate = ?", (float(rate),))
-            await db.commit()
-        await message.reply(f"✅ კურსი დაყენდა: {rate}")
-    except:
-        await message.reply("გამოყენება: /rate 1.00")
-
-
-# ---------- SET FEE ----------
-@dp.message(F.text.startswith("%"))
-async def set_fee(message: types.Message):
-    if not is_admin(message):
-        return
-    try:
-        fee = float(message.text.replace("%", ""))
-        async with aiosqlite.connect(DB_NAME) as db:
-            await db.execute("UPDATE settings SET fee = ?", (fee,))
-            await db.commit()
-        await message.reply(f"✅ საკომისიო: {fee}%")
-    except:
-        await message.reply("გამოყენება: %5")
-
-
-# ---------- DEPOSIT ----------
-@dp.message(F.text.regexp(r"^\+\s*\d+(\.\d+)?(\s*(usd|usdt))?$", flags=re.IGNORECASE))
-async def deposit(message: types.Message):
-    if not is_admin(message):
-        return
-
-    text = message.text.lower()
-    amount = float(
-        text.replace("+", "")
-            .replace("usd", "")
-            .replace("usdt", "")
-            .strip()
-    )
-
-    async with aiosqlite.connect(DB_NAME) as db:
-        await db.execute(
-            "UPDATE stats SET total_usd = total_usd + ?", (amount,)
-        )
-        await db.execute(
-            "INSERT INTO operations (type, amount, time) VALUES (?,?,?)",
-            ("deposit", amount, datetime.now().isoformat())
-        )
-        await db.commit()
-
-    await message.reply(f"✅ ჩარიცხულია {amount} USD")
-
-# ---------- WITHDRAW ----------
-@dp.message(F.text.regexp(r"^-\d+(\.\d+)?$"))
-async def withdraw(message: types.Message):
-    if not is_admin(message):
-        return
-    amount = float(message.text.replace("-", ""))
-    async with aiosqlite.connect(DB_NAME) as db:
-        await db.execute(
-            "UPDATE stats SET sent_usdt = sent_usdt + ?", (amount,)
-        )
-        await db.execute(
-            "INSERT INTO operations (type, amount, time) VALUES (?,?,?)",
-            ("withdraw", amount, datetime.now().isoformat())
-        )
-        await db.commit()
-    await message.reply(f"✅ გაცემულია {amount} USDT")
-
-
-# ---------- REPORT ----------
 async def send_report(target):
     async with aiosqlite.connect(DB_NAME) as db:
         rate, fee = await (await db.execute(
-            "SELECT rate, fee FROM settings WHERE id = 1"
+            "SELECT rate, fee FROM settings WHERE id=1"
         )).fetchone()
 
         total_usd, sent_usdt = await (await db.execute(
-            "SELECT total_usd, sent_usdt FROM stats WHERE id = 1"
+            "SELECT total_usd, sent_usdt FROM stats WHERE id=1"
         )).fetchone()
 
-    if rate == 0:
-        if isinstance(target, types.CallbackQuery):
-            await target.message.answer("❌ კურსი დაყენებული არ არის")
-        else:
-            await target.answer("❌ კურსი დაყენებული არ არის")
-        return
-
-    gross = total_usd / rate
-    fee_amt = gross * (fee / 100)
+    gross = total_usd / rate if rate else 0
+    fee_amt = gross * fee / 100
     net = gross - fee_amt
     remaining = net - sent_usdt
 
     text = (
-        "📊 <b>ფინანსური რეპორტი</b>\n\n"
-        f"💵 ჩარიცხული: <b>{total_usd:.2f} USD</b>\n"
-        f"📤 გაცემული: <b>{sent_usdt:.2f} USDT</b>\n"
-        f"💰 საკომისიო: <b>{fee}%</b>\n"
-        f"📈 გასაცემი: <b>{remaining:.2f} USDT</b>"
+        "📊 <b>REPORT</b>\n\n"
+        f"💵 Deposited: <b>{total_usd:.2f} USD</b>\n"
+        f"📤 Sent: <b>{sent_usdt:.2f} USDT</b>\n"
+        f"💰 Fee: <b>{fee}%</b>\n"
+        f"📈 Remaining: <b>{remaining:.2f} USDT</b>"
     )
 
     if isinstance(target, types.CallbackQuery):
         await target.message.answer(text, parse_mode="HTML")
-        await target.answer()  # popup-ის გასაქრობად
+        await target.answer()
     else:
         await target.answer(text, parse_mode="HTML")
 
 
 @dp.message(Command("report"))
 async def report_cmd(message: types.Message):
-    if is_admin(message):
+    if is_admin(message.from_user.id):
         await send_report(message)
 
 
 @dp.callback_query(F.data == "report")
 async def report_cb(call: types.CallbackQuery):
-    if call.from_user.id in ADMINS:
+    if is_admin(call.from_user.id):
         await send_report(call)
 
+# ================= RESET =================
 
-# ---------- RESET ----------
 @dp.callback_query(F.data == "reset")
 async def reset(call: types.CallbackQuery):
-    if call.from_user.id not in ADMINS:
+    if not is_admin(call.from_user.id):
         return
+
     async with aiosqlite.connect(DB_NAME) as db:
-        await db.execute("UPDATE stats SET total_usd = 0, sent_usdt = 0")
+        await db.execute("UPDATE stats SET total_usd=0, sent_usdt=0")
         await db.execute("DELETE FROM operations")
         await db.commit()
-    await call.answer("Reset შესრულდა ✅", show_alert=True)
 
+    await call.answer("Reset done ✅", show_alert=True)
 
-# ---------- EXPORT ----------
-@dp.callback_query(F.data == "export")
-async def export(call: types.CallbackQuery):
-    if call.from_user.id not in ADMINS:
+# ================= MAIN LOGIC (+ / -) =================
+
+@dp.message(F.text)
+async def handle_amount(message: types.Message):
+    if not is_admin(message.from_user.id):
         return
 
-    import csv
-    filename = "operations.csv"
+    text = message.text.lower().strip()
+
+    # match +100 / + 100 usd / -50 usdt
+    match = re.match(r"^([+-])\s*(\d+(\.\d+)?)(\s*(usd|usdt))?$", text)
+    if not match:
+        return
+
+    sign = match.group(1)
+    amount = float(match.group(2))
 
     async with aiosqlite.connect(DB_NAME) as db:
-        rows = await (await db.execute(
-            "SELECT type, amount, time FROM operations"
-        )).fetchall()
+        if sign == "+":
+            await db.execute(
+                "UPDATE stats SET total_usd = total_usd + ?", (amount,)
+            )
+            op_type = "deposit"
+            reply = f"✅ Deposited {amount} USD"
+        else:
+            await db.execute(
+                "UPDATE stats SET sent_usdt = sent_usdt + ?", (amount,)
+            )
+            op_type = "withdraw"
+            reply = f"✅ Sent {amount} USDT"
 
-    with open(filename, "w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow(["type", "amount", "time"])
-        writer.writerows(rows)
+        await db.execute(
+            "INSERT INTO operations (type, amount, time) VALUES (?,?,?)",
+            (op_type, amount, datetime.now().isoformat())
+        )
+        await db.commit()
 
-    await call.message.answer_document(types.FSInputFile(filename))
+    await message.reply(reply)
 
+# ================= RUN =================
 
-# ---------- MAIN ----------
 async def main():
     await init_db()
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
     asyncio.run(main())
-
-
-
