@@ -1,6 +1,7 @@
 import asyncio
 import aiosqlite
 from datetime import datetime
+import re
 
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
@@ -109,11 +110,19 @@ async def set_fee(message: types.Message):
 
 
 # ---------- DEPOSIT ----------
-@dp.message(F.text.regexp(r"^\+\d+(\.\d+)?$"))
+@dp.message(F.text.regexp(r"^\+\s*\d+(\.\d+)?(\s*(usd|usdt))?$", flags=re.IGNORECASE))
 async def deposit(message: types.Message):
     if not is_admin(message):
         return
-    amount = float(message.text.replace("+", ""))
+
+    text = message.text.lower()
+    amount = float(
+        text.replace("+", "")
+            .replace("usd", "")
+            .replace("usdt", "")
+            .strip()
+    )
+
     async with aiosqlite.connect(DB_NAME) as db:
         await db.execute(
             "UPDATE stats SET total_usd = total_usd + ?", (amount,)
@@ -123,8 +132,8 @@ async def deposit(message: types.Message):
             ("deposit", amount, datetime.now().isoformat())
         )
         await db.commit()
-    await message.reply(f"✅ ჩარიცხულია {amount} USD")
 
+    await message.reply(f"✅ ჩარიცხულია {amount} USD")
 
 # ---------- WITHDRAW ----------
 @dp.message(F.text.regexp(r"^-\d+(\.\d+)?$"))
@@ -235,5 +244,6 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
 
